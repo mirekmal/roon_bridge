@@ -4,8 +4,8 @@ const options = JSON.parse(fs.readFileSync("/data/options.json", "utf8"));
 const mqttHost = options.mqtt_host || "core-mosquitto";
 const mqttPort = Number(options.mqtt_port || 1883);
 
-process.env.APP_VERSION = "0.2.55";
-process.env.API_VERSION = "1.56.0";
+process.env.APP_VERSION = "0.2.56";
+process.env.API_VERSION = "1.57.0";
 process.env.MQTT_URL = `mqtt://${mqttHost}:${mqttPort}`;
 process.env.MQTT_USERNAME = options.mqtt_username || "";
 process.env.MQTT_PASSWORD = options.mqtt_password || "";

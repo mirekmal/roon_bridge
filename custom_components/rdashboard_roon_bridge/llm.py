@@ -22,7 +22,9 @@ class PlayLocalRoonMusicTool(llm.Tool):
 
     name = "play_local_roon_music"
     description = (
-        "Search the user's local Roon library and play an exact or unambiguous "
+        "Legacy direct-search tool for the user's local Roon library. Prefer the "
+        "search_roon_library MCP tool followed by play_roon_library_request when "
+        "those tools are available. This tool can play an exact or unambiguous "
         "artist, album, or track match. If only an artist is supplied, play all of that artist's local Roon music. "
         "For a request for artists similar to a named artist, provide similar_to_artist and a short list of similar_artists; "
         "only artists actually present in the local Roon library will be queued. The default target is the Marantz SACD 30n. "
@@ -117,7 +119,12 @@ def async_get_tools(
     return llm.LLMTools(
         tools=[PlayLocalRoonMusicTool()],
         prompt=(
-            "Muzykę odtwarzaj wyłącznie przez narzędzie play_local_roon_music. "
+            "Jeśli dostępne są narzędzia MCP search_roon_library i play_roon_library_request, "
+            "najpierw wyszukaj lokalną bibliotekę narzędziem search_roon_library, "
+            "a następnie przekaż wybrane kryteria do play_roon_library_request. "
+            "Dla prośby o wszystkie utwory wykonawcy wyszukaj wykonawcę i uruchom jego całą "
+            "muzykę z lokalnej biblioteki; nie wybieraj losowego albumu. "
+            "Jeśli narzędzia MCP nie są dostępne, użyj play_local_roon_music. "
             "Jeśli użytkownik prosi tylko o wykonawcę bez albumu lub utworu, przekaż artist i nie wybieraj samodzielnie albumu — narzędzie odtworzy całą muzykę tego wykonawcy z biblioteki. "
             "Jeśli użytkownik prosi o muzykę podobną do wykonawcy, rozpoznaj kilku podobnych wykonawców na podstawie publicznie znanych gatunków, stylu i powiązań muzycznych; przekaż nazwę źródłowego wykonawcy w similar_to_artist, a kandydatów jako similar_artists. "
             "Nie twierdź, że sprawdziłeś aktualne źródła internetowe. Narzędzie odtworzy tylko kandydatów znalezionych dokładnie w lokalnej bibliotece Roon i doda ich muzykę do kolejki. "

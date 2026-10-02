@@ -23,3 +23,22 @@ The integration uses the app's internal HTTP endpoint on port `8090`. If the app
 - `roon_bridge_app/` — Supervisor app definition, container build files, and bridge runtime.
 
 The bridge app includes its Node test suite under `roon_bridge_app/test/`.
+
+## Assist library search and MCP tools
+
+The app exposes a stateless Streamable HTTP MCP endpoint at `/mcp` for Home
+Assistant's Model Context Protocol integration. It provides:
+
+- `search_roon_library`: ranked album/artist matches from the local Roon
+  catalog. The cache refreshes automatically in the background when older than
+  30 minutes; results indicate when the cache is stale or refreshing.
+- `play_roon_library_request`: play a selected artist, album, or track. An
+  artist-only request plays that artist's full catalog. If Roon Browse omits
+  the artist entry, the bridge resolves and queues matching cached albums.
+
+In Home Assistant, add the **Model Context Protocol** integration with the
+bridge URL `http://<app-hostname>:8090/mcp`, then enable its tools for the
+conversation agent used by the Assist pipeline. The existing Assist playback
+tool remains available as a fallback. When `roon_control_token` is configured,
+the endpoint accepts it as a Bearer token; with an empty token, it is available
+to clients on the trusted network, like the existing local bridge API.

@@ -1,8 +1,8 @@
 name: Rdashboard Roon Queue Bridge
-version: "0.2.55"
+version: "0.2.56"
 slug: rdashboard_roon_bridge
 description: Publish Roon queue artwork and resolve local music requests for Home Assistant
-url: https://github.com/mirekmal/rdashboard
+url: https://github.com/mirekmal/roon_bridge
 startup: application
 boot: auto
 init: false
@@ -20,7 +20,7 @@ map:
 ports:
   8090/tcp: 8090
 ports_description:
-  8090/tcp: Artwork cache health/API endpoint
+  8090/tcp: Bridge API, MCP tools, health, and artwork
 options:
   mqtt_host: core-mosquitto
   mqtt_port: 1883

@@ -22,10 +22,11 @@ const {
 const { createRoonPersistence } = require("./roon-persistence");
 const { createRoonBrowse } = require("./roon-browse");
 const { createRoonCatalog } = require("./roon-catalog");
+const { createMcpServer } = require("./mcp-server");
 const { resolveZoneMapping } = require("./zone-target");
 
-const VERSION = process.env.APP_VERSION || "0.2.55";
-const API_VERSION = process.env.API_VERSION || "1.56.0";
+const VERSION = process.env.APP_VERSION || "0.2.56";
+const API_VERSION = process.env.API_VERSION || "1.57.0";
 const PORT = Number(process.env.HTTP_PORT || 8090);
 const MAX_QUEUE_ITEMS = Number(process.env.MAX_QUEUE_ITEMS || 50);
 const QUEUE_REFRESH_COOLDOWN_MS = 2000;
@@ -73,6 +74,7 @@ const app = {
   roonBrowse: null,
   catalogRefreshTimer: null,
   coreUnpairing: false,
+  catalogRefreshPromise: null,
 };
 
 const discoveryPrefix = () => process.env.MQTT_DISCOVERY_PREFIX || "homeassistant";
@@ -305,12 +307,17 @@ const getImage = (imageKey) => new Promise((resolve, reject) => {
   });
 });
 
-const refreshCatalog = async (reason = "scheduled") => {
-  if (!app.roonBrowse) throw new Error("Roon Browse service is not connected");
-  const entries = await app.roonBrowse.refreshAlbums();
-  app.catalog.replace(entries);
-  log("Roon library catalog refreshed", reason, `${entries.length} albums`);
-  return app.catalog.summary();
+const refreshCatalog = (reason = "scheduled") => {
+  if (app.catalogRefreshPromise) return app.catalogRefreshPromise;
+  if (!app.roonBrowse) return Promise.reject(new Error("Roon Browse service is not connected"));
+  app.catalogRefreshPromise = app.roonBrowse.refreshAlbums()
+    .then((entries) => {
+      app.catalog.replace(entries);
+      log("Roon library catalog refreshed", reason, `${entries.length} albums`);
+      return app.catalog.summary();
+    })
+    .finally(() => { app.catalogRefreshPromise = null; });
+  return app.catalogRefreshPromise;
 };
 
 const catalogSearchRequest = (url) => ({
@@ -340,6 +347,80 @@ const sendJson = (response, status, payload) => {
 
 const controlAuthorized = (request) => !ROON_CONTROL_TOKEN || request.headers["x-rdashboard-token"] === ROON_CONTROL_TOKEN;
 
+const refreshCatalogIfStale = async () => {
+  const refreshedAt = app.catalog.refreshedAt ? Date.parse(app.catalog.refreshedAt) : 0;
+  if (Date.now() - refreshedAt < 30 * 60 * 1000) return app.catalog.summary();
+  if (!app.roonBrowse) {
+    if (app.catalog.size) return { ...app.catalog.summary(), stale: true };
+    throw new Error("Roon is disconnected and no library cache is available");
+  }
+  const refreshPromise = refreshCatalog("MCP search refresh");
+  refreshPromise.catch((error) => log("Roon library catalog refresh failed", error.message));
+  return { ...app.catalog.summary(), stale: true, refreshing: true };
+};
+
+const searchLibrary = async (args = {}) => {
+  const summary = await refreshCatalogIfStale();
+  const request = {
+    q: args.query || "",
+    artist: args.artist || "",
+    album: args.album || "",
+    track: args.track || "",
+  };
+  if (!Object.values(request).some(Boolean)) throw new Error("Provide a query, artist, album, or track to search");
+  return { ...summary, matches: app.catalog.search(request, args.limit || 10) };
+};
+
+const playRoonRequest = async (body = {}) => {
+  const mapping = resolveZoneMapping(
+    [...app.mappings.values()],
+    body.entity_id || body.zone || body.target,
+    ROON_MUSIC_ENTITY_ID || ZONE_NAME,
+  );
+  if (!mapping) return { status: 409, payload: { error: "No matching Roon playback zone" } };
+  if (!app.roonBrowse) return { status: 503, payload: { error: "Roon Browse service is not connected" } };
+  const requestData = {
+    q: body.q || body.query || "",
+    artist: body.artist || "",
+    album: body.album || "",
+    track: body.track || body.title || "",
+  };
+  let result;
+  if (body.similar_to_artist) {
+    result = await app.roonBrowse.playSimilarArtists({
+      artist: body.similar_to_artist,
+      similarArtists: body.similar_artists,
+      zoneId: mapping.zone.zone_id,
+      catalog: app.catalog,
+    });
+  } else if (requestData.artist && !requestData.album && !requestData.track && !requestData.q) {
+    result = await app.roonBrowse.playArtistCatalog({
+      artist: requestData.artist,
+      zoneId: mapping.zone.zone_id,
+      catalog: app.catalog,
+    });
+  } else {
+    const query = [requestData.artist, requestData.album, requestData.track].filter(Boolean).join(" ") || requestData.q;
+    if (!query) return { status: 400, payload: { error: "A music query is required" } };
+    result = await app.roonBrowse.searchAndPlay({ query, request: requestData, zoneId: mapping.zone.zone_id, catalog: app.catalog });
+  }
+  return {
+    status: result.status === "played" ? 200 : 404,
+    payload: { ...result, target: mapping.zone.display_name, entity_id: mapping.entity_id },
+  };
+};
+
+const mcpServer = createMcpServer({
+  version: VERSION,
+  searchLibrary,
+  async playMusic(args) {
+    const result = await playRoonRequest(args);
+    if (result.status === 404 && ["not_found", "ambiguous"].includes(result.payload.status)) return result.payload;
+    if (result.status >= 400) throw new Error(result.payload.error || result.payload.status || "Roon playback request failed");
+    return result.payload;
+  },
+});
+
 const attachCore = (core) => {
   app.coreUnpairing = false;
   app.core = core;
@@ -365,7 +446,7 @@ const roon = new RoonApi({
   display_version: process.env.ROON_DISPLAY_VERSION || VERSION,
   publisher: process.env.ROON_PUBLISHER || "Mirek Malinowski",
   email: process.env.ROON_EMAIL || "local@example.invalid",
-  website: process.env.ROON_WEBSITE || "https://github.com/mirekmal/rdashboard",
+  website: process.env.ROON_WEBSITE || "https://github.com/mirekmal/roon_bridge",
   log_level: process.env.ROON_LOG_LEVEL || "none",
   get_persisted_state: roonPersistence.getPersistedState,
   set_persisted_state: roonPersistence.setPersistedState,
@@ -408,6 +489,34 @@ mqttClient.on("error", (error) => log("MQTT error", error.message));
 
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
+  if (url.pathname === "/mcp") {
+    if (request.method !== "POST") {
+      response.writeHead(405, { allow: "POST", "content-type": "application/json; charset=utf-8" });
+      response.end(JSON.stringify({ error: "MCP endpoint accepts POST requests" }));
+      return;
+    }
+    const bearer = String(request.headers.authorization || "").replace(/^Bearer\s+/i, "");
+    if (ROON_CONTROL_TOKEN && request.headers["x-rdashboard-token"] !== ROON_CONTROL_TOKEN && bearer !== ROON_CONTROL_TOKEN) {
+      response.writeHead(401, { "content-type": "application/json; charset=utf-8", "www-authenticate": "Bearer" });
+      response.end(JSON.stringify({ error: "Invalid bridge control token" }));
+      return;
+    }
+    try {
+      const message = await readRequestJson(request);
+      const result = await mcpServer.handle(message);
+      if (result.body === null) {
+        response.writeHead(result.status, { "cache-control": "no-store" });
+        response.end();
+      } else {
+        response.writeHead(result.status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+        response.end(JSON.stringify(result.body));
+      }
+    } catch (error) {
+      response.writeHead(400, { "content-type": "application/json; charset=utf-8" });
+      response.end(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: `Parse error: ${error.message}` } }));
+    }
+    return;
+  }
   if (request.method === "GET" && url.pathname === "/api/roon/catalog") {
     sendJson(response, 200, { ...app.catalog.summary(), entries: app.catalog.entries() });
     return;
@@ -425,46 +534,8 @@ const server = http.createServer(async (request, response) => {
     if (!controlAuthorized(request)) return sendJson(response, 401, { error: "Invalid bridge control token" });
     try {
       const body = await readRequestJson(request);
-      const mapping = resolveZoneMapping(
-        [...app.mappings.values()],
-        body.entity_id || body.zone || body.target,
-        ROON_MUSIC_ENTITY_ID || ZONE_NAME,
-      );
-      if (!mapping) return sendJson(response, 409, { error: "No matching Roon playback zone" });
-      if (!app.roonBrowse) return sendJson(response, 503, { error: "Roon Browse service is not connected" });
-      const requestData = {
-        q: body.q || body.query || "",
-        artist: body.artist || "",
-        album: body.album || "",
-        track: body.track || body.title || "",
-      };
-      if (body.similar_to_artist) {
-        const result = await app.roonBrowse.playSimilarArtists({
-          artist: body.similar_to_artist,
-          similarArtists: body.similar_artists,
-          zoneId: mapping.zone.zone_id,
-        });
-        return sendJson(response, result.status === "played" ? 200 : 404, {
-          ...result, target: mapping.zone.display_name, entity_id: mapping.entity_id,
-        });
-      }
-      if (requestData.artist && !requestData.album && !requestData.track && !requestData.q) {
-        const result = await app.roonBrowse.playArtistCatalog({
-          artist: requestData.artist,
-          zoneId: mapping.zone.zone_id,
-        });
-        return sendJson(response, result.status === "played" ? 200 : 404, {
-          ...result, target: mapping.zone.display_name, entity_id: mapping.entity_id,
-        });
-      }
-      const query = [requestData.artist, requestData.album, requestData.track].filter(Boolean).join(" ") || requestData.q;
-      if (!query) return sendJson(response, 400, { error: "A music query is required" });
-      const result = await app.roonBrowse.searchAndPlay({ query, request: requestData, zoneId: mapping.zone.zone_id, catalog: app.catalog });
-      return sendJson(response, result.status === "played" ? 200 : 404, {
-        ...result,
-        target: mapping.zone.display_name,
-        entity_id: mapping.entity_id,
-      });
+      const result = await playRoonRequest(body);
+      return sendJson(response, result.status, result.payload);
     } catch (error) { return sendJson(response, 502, { error: error.message }); }
   }
   if (url.pathname === "/healthz") {
@@ -473,6 +544,8 @@ const server = http.createServer(async (request, response) => {
       status: "ok",
       app_version: VERSION,
       api_version: API_VERSION,
+      mcp_endpoint: "/mcp",
+      mcp_tool_count: mcpServer.tools.length,
       roon_connected: Boolean(app.core),
       mqtt_connected: app.mqttReady,
       catalog: app.catalog.summary(),

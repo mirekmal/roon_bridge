@@ -1,6 +1,6 @@
 {
   "name": "rdashboard-roon-bridge-ha-addon",
-  "version": "0.2.55",
+  "version": "0.2.56",
   "private": true,
   "description": "Home Assistant add-on wrapper for the Rdashboard Roon queue bridge",
   "main": "src/addon-entry.js",

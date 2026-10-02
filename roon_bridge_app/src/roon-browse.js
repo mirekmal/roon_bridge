@@ -174,9 +174,48 @@ const createRoonBrowse = (service, options = {}) => {
     return artistItems.find((item) => normalizedTitle(item.title) === expected && item.item_key) || null;
   };
 
-  const playArtist = async ({ artist, zoneId, artistItems, sessionKey, queue = false }) => {
+  const playArtistFromCatalog = async ({ artist, zoneId, catalog, queue = false }) => {
+    if (!catalog) return { status: "not_found", artist };
+    const expectedArtist = normalizedTitle(artist);
+    const albums = catalog.entries()
+      .filter((entry) => entry.kind === "album" && normalizedTitle(entry.artist) === expectedArtist)
+      .filter((entry, index, entries) => entries.findIndex((candidate) => normalizedTitle(candidate.album || candidate.title) === normalizedTitle(entry.album || entry.title)) === index);
+    if (!albums.length) return { status: "not_found", artist };
+
+    const queued = [];
+    const unavailable = [];
+    for (const album of albums) {
+      const result = await search(`${artist} ${album.album || album.title}`, zoneId);
+      const candidate = result.items.find((item) => item.item_key
+        && normalizedTitle(item.title) === normalizedTitle(album.album || album.title)
+        && normalizedTitle(item.subtitle).includes(expectedArtist));
+      if (!candidate) {
+        unavailable.push(album.album || album.title);
+        continue;
+      }
+      try {
+        const played = await play({
+          itemKey: candidate.item_key,
+          hierarchy: "search",
+          zoneId,
+          sessionKey: result.sessionKey,
+          queue: queue || queued.length > 0,
+          actionPattern: queue || queued.length > 0
+            ? /add to queue|queue|dodaj.*kolejki/i
+            : /play|odtwórz/i,
+        });
+        queued.push({ album: album.album || album.title, action: played.action });
+      } catch (error) {
+        unavailable.push(album.album || album.title);
+      }
+    }
+    if (!queued.length) return { status: "not_found", artist, matches: albums.map((entry) => entry.album || entry.title) };
+    return { status: "queued", artist, albums: queued, unavailable_albums: unavailable };
+  };
+
+  const playArtist = async ({ artist, zoneId, artistItems, sessionKey, queue = false, catalog }) => {
     const selected = await findArtist(artist, artistItems);
-    if (!selected) return { status: "not_found", artist };
+    if (!selected) return playArtistFromCatalog({ artist, zoneId, catalog, queue });
     const result = await play({
       itemKey: selected.item_key,
       hierarchy: "browse",
@@ -187,18 +226,20 @@ const createRoonBrowse = (service, options = {}) => {
     return { status: "queued", artist: selected.title, action: result.action };
   };
 
-  const playArtistCatalog = async ({ artist, zoneId }) => {
+  const playArtistCatalog = async ({ artist, zoneId, catalog }) => {
     const { items: artistItems, sessionKey } = await loadArtistItems();
-    const result = await playArtist({ artist, zoneId, artistItems, sessionKey });
+    const result = await playArtist({ artist, zoneId, artistItems, sessionKey, catalog });
     if (result.status === "not_found") return { status: "not_found", matches: [] };
     return {
       status: "played",
-      selected: { title: result.artist, subtitle: "Wszystkie utwory z biblioteki Roon" },
-      action: result.action,
+      selected: { title: result.artist, subtitle: "Wszystkie utwory z biblioteki Roon", albums: result.albums?.length },
+      action: result.action || result.albums?.[0]?.action || "Play now",
+      queued: result.albums || [],
+      unavailable_albums: result.unavailable_albums || [],
     };
   };
 
-  const playSimilarArtists = async ({ artist, similarArtists, zoneId }) => {
+  const playSimilarArtists = async ({ artist, similarArtists, zoneId, catalog }) => {
     const { items: artistItems, sessionKey } = await loadArtistItems();
     const candidates = Array.isArray(similarArtists) ? similarArtists : [];
     const names = [...new Set(candidates.map((name) => String(name || "").trim()).filter(Boolean))]
@@ -216,6 +257,7 @@ const createRoonBrowse = (service, options = {}) => {
         artistItems,
         sessionKey,
         queue: index > 0,
+        catalog,
       });
       if (result.status === "queued") queued.push({ artist: result.artist, action: result.action });
     }

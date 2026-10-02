@@ -133,6 +133,54 @@ test("plays the whole local artist when no album or track is specified", async (
   assert.equal(fake.calls.find((call) => call.options.item_key === "artist-pink").options.zone_or_output_id, "zone-volumio");
 });
 
+test("falls back to catalogued albums when Roon Browse omits the artist entry", async () => {
+  const calls = [];
+  const fake = {
+    browse(options, callback) {
+      calls.push({ method: "browse", options });
+      if (options.item_key === "library-key") return callback(false, { action: "list", list: { level: 1, count: 1 } });
+      if (options.item_key === "artists-key") return callback(false, { action: "list", list: { level: 2, count: 0 } });
+      if (options.hierarchy === "search" && !options.item_key) return callback(false, { action: "list", list: { level: 0, count: 1 } });
+      if (options.item_key?.startsWith("album-")) return callback(false, { action: "list", list: { level: 1, count: 2 } });
+      if (options.item_key?.startsWith("action-")) return callback(false, { action: "none" });
+      return callback(false, { action: "list", list: { level: 0, count: 1 } });
+    },
+    load(options, callback) {
+      calls.push({ method: "load", options });
+      const lastBrowse = [...calls].reverse().find((call) => call.method === "browse");
+      if (lastBrowse?.options.item_key?.startsWith("album-")) {
+        return callback(false, { items: [
+          { title: "Play now", item_key: "action-play", hint: "action" },
+          { title: "Add to queue", item_key: "action-queue", hint: "action" },
+        ] });
+      }
+      if (options.hierarchy === "search") {
+        const query = lastBrowse?.options.input || "";
+        return callback(false, { items: [{
+        title: query.includes("Animals") ? "Animals" : "Wish You Were Here",
+        subtitle: "Pink Floyd", item_key: query.includes("Animals") ? "album-animals" : "album-wish", hint: "list",
+      }] });
+      }
+      if (options.level === 1) return callback(false, { items: [{ title: "Artists", item_key: "artists-key", hint: "list" }] });
+      if (options.level === 2) return callback(false, { items: [] });
+      return callback(false, { items: [{ title: "Library", item_key: "library-key", hint: "list" }] });
+    },
+  };
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "rdashboard-roon-fallback-"));
+  const catalog = createRoonCatalog(path.join(directory, "catalog.json"));
+  catalog.replace([
+    { kind: "album", title: "Animals", album: "Animals", artist: "Pink Floyd" },
+    { kind: "album", title: "Wish You Were Here", album: "Wish You Were Here", artist: "Pink Floyd" },
+  ]);
+  const browse = createRoonBrowse(fake);
+  const result = await browse.playArtistCatalog({ artist: "Pink Floyd", zoneId: "zone-volumio", catalog });
+  assert.equal(result.status, "played");
+  assert.equal(result.queued.length, 2);
+  assert.equal(result.queued[0].action, "Play now");
+  assert.equal(result.queued[1].action, "Add to queue");
+  assert.equal(calls.filter((call) => call.method === "browse" && call.options.item_key?.startsWith("album-")).length, 2);
+});
+
 test("queues only library artists for a similar-artist request", async () => {
   const fake = createArtistBrowse();
   const browse = createRoonBrowse(fake);
