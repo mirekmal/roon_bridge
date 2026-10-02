@@ -1,0 +1,47 @@
+name: Rdashboard Roon Queue Bridge
+version: "0.2.54"
+slug: rdashboard_roon_bridge
+description: Publish Roon queue artwork and resolve local music requests for Home Assistant
+url: https://github.com/mirekmal/roon_bridge
+startup: application
+boot: auto
+init: false
+host_network: true
+homeassistant_api: true
+arch:
+  - amd64
+  - aarch64
+  - armv7
+  - armhf
+  - i386
+map:
+  - config:rw
+  - data:rw
+ports:
+  8090/tcp: 8090
+ports_description:
+  8090/tcp: Artwork cache health/API endpoint
+options:
+  mqtt_host: core-mosquitto
+  mqtt_port: 1883
+  mqtt_username: homeassistant
+  mqtt_password: ""
+  mqtt_base_topic: roon/rdashboard
+  mqtt_discovery_prefix: homeassistant
+  public_base_url: https://hassio.mirekmal.com/local/rdashboard-art/{{key}}.jpg
+  http_port: 8090
+  roon_music_entity_id: media_player.marantz_sacd_30n
+  roon_control_token: ""
+schema:
+  mqtt_host: str
+  mqtt_port: port
+  mqtt_username: str
+  mqtt_password: password
+  mqtt_base_topic: str
+  mqtt_discovery_prefix: str
+  public_base_url: url
+  http_port: port
+  roon_music_entity_id: str
+  roon_control_token: password
+panel_icon: mdi:album
+panel_title: Rdashboard bridge
