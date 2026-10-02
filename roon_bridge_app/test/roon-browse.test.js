@@ -181,6 +181,43 @@ test("falls back to catalogued albums when Roon Browse omits the artist entry", 
   assert.equal(calls.filter((call) => call.method === "browse" && call.options.item_key?.startsWith("album-")).length, 2);
 });
 
+test("falls back to catalogued albums when a Roon artist entry has no playback action", async () => {
+  const calls = [];
+  const fake = {
+    browse(options, callback) {
+      calls.push({ method: "browse", options });
+      if (options.item_key === "library-key") return callback(false, { action: "list", list: { level: 1, count: 1 } });
+      if (options.item_key === "artists-key") return callback(false, { action: "list", list: { level: 2, count: 1 } });
+      if (options.item_key === "artist-draugr") return callback(false, { action: "list", list: { level: 3, count: 1 } });
+      if (options.hierarchy === "search" && !options.item_key) return callback(false, { action: "list", list: { level: 0, count: 1 } });
+      if (options.item_key === "album-single") return callback(false, { action: "list", list: { level: 1, count: 1 } });
+      if (options.item_key === "action-play") return callback(false, { action: "none" });
+      return callback(false, { action: "list", list: { level: 0, count: 1 } });
+    },
+    load(options, callback) {
+      calls.push({ method: "load", options });
+      const lastBrowse = [...calls].reverse().find((call) => call.method === "browse");
+      if (lastBrowse?.options.item_key === "artist-draugr") return callback(false, { items: [{ title: "Albums", item_key: "albums-key", hint: "list" }] });
+      if (lastBrowse?.options.item_key === "album-single") return callback(false, { items: [{ title: "Play now", item_key: "action-play", hint: "action" }] });
+      if (options.hierarchy === "browse" && options.level === undefined) return callback(false, { items: [{ title: "Library", item_key: "library-key", hint: "list" }] });
+      if (options.level === 1) return callback(false, { items: [{ title: "Artists", item_key: "artists-key", hint: "list" }] });
+      if (options.level === 2) return callback(false, { items: [{ title: "Draugr Beatz", item_key: "artist-draugr", hint: "list" }] });
+      if (options.hierarchy === "search") return callback(false, { items: [{ title: "Allfather - Single", subtitle: "Draugr Beatz", item_key: "album-single", hint: "list" }] });
+      return callback(false, { items: [] });
+    },
+  };
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "rdashboard-roon-artist-action-"));
+  const catalog = createRoonCatalog(path.join(directory, "catalog.json"));
+  catalog.replace([{ kind: "album", title: "Allfather - Single", album: "Allfather - Single", artist: "Draugr Beatz" }]);
+  const browse = createRoonBrowse(fake);
+  const result = await browse.playArtistCatalog({ artist: "Draugr Beatz", zoneId: "zone-volumio", catalog });
+  assert.equal(result.status, "played");
+  assert.equal(result.queued[0].album, "Allfather - Single");
+  assert.equal(result.queued[0].action, "Play now");
+  assert.equal(calls.some((call) => call.method === "browse" && call.options.item_key === "artist-draugr"), true);
+  assert.equal(calls.some((call) => call.method === "browse" && call.options.item_key === "album-single"), true);
+});
+
 test("queues only library artists for a similar-artist request", async () => {
   const fake = createArtistBrowse();
   const browse = createRoonBrowse(fake);

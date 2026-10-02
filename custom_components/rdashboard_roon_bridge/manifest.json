@@ -1,7 +1,7 @@
 {
   "domain": "rdashboard_roon_bridge",
   "name": "Rdashboard Roon Bridge",
-  "version": "0.2.56",
+  "version": "0.2.57",
   "documentation": "https://github.com/mirekmal/roon_bridge",
   "issue_tracker": "https://github.com/mirekmal/roon_bridge/issues",
   "integration_type": "service",

@@ -216,14 +216,19 @@ const createRoonBrowse = (service, options = {}) => {
   const playArtist = async ({ artist, zoneId, artistItems, sessionKey, queue = false, catalog }) => {
     const selected = await findArtist(artist, artistItems);
     if (!selected) return playArtistFromCatalog({ artist, zoneId, catalog, queue });
-    const result = await play({
-      itemKey: selected.item_key,
-      hierarchy: "browse",
-      zoneId,
-      sessionKey,
-      actionPattern: queue ? /add to queue|queue|dodaj.*kolejki/i : /play|odtwórz/i,
-    });
-    return { status: "queued", artist: selected.title, action: result.action };
+    try {
+      const result = await play({
+        itemKey: selected.item_key,
+        hierarchy: "browse",
+        zoneId,
+        sessionKey,
+        actionPattern: queue ? /add to queue|queue|dodaj.*kolejki/i : /play|odtwórz/i,
+      });
+      return { status: "queued", artist: selected.title, action: result.action };
+    } catch (error) {
+      if (!String(error?.message || error).includes("Roon did not offer a playback action")) throw error;
+      return playArtistFromCatalog({ artist: selected.title, zoneId, catalog, queue });
+    }
   };
 
   const playArtistCatalog = async ({ artist, zoneId, catalog }) => {

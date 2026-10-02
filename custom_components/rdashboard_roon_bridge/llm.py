@@ -132,6 +132,8 @@ def async_get_tools(
             "Volumio Bridge albo odtwarzacz Volumio, przekaż target="
             "media_player.volumio_bridge. Jeśli poda inny odtwarzacz Roon, "
             "przekaż jego Home Assistant media_player entity_id jako target. "
+            "Nie zgaduj nazw ani identyfikatorów odtwarzaczy. Jeśli użytkownik nie podał celu, pomiń target i użyj domyślnego Marantza. "
+            "Wykonaj najwyżej jedno wywołanie odtwarzania na polecenie; po błędzie celu lub strefy nie próbuj innych odtwarzaczy. "
             "Odpowiadaj po polsku. Jeśli narzędzie zwróci not_found, powiedz, "
             "że utworu nie ma w lokalnej bibliotece. Jeśli zwróci ambiguous, "
             "poproś użytkownika o doprecyzowanie zamiast zgadywać."

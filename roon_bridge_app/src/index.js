@@ -25,8 +25,8 @@ const { createRoonCatalog } = require("./roon-catalog");
 const { createMcpServer } = require("./mcp-server");
 const { resolveZoneMapping } = require("./zone-target");
 
-const VERSION = process.env.APP_VERSION || "0.2.56";
-const API_VERSION = process.env.API_VERSION || "1.57.0";
+const VERSION = process.env.APP_VERSION || "0.2.57";
+const API_VERSION = process.env.API_VERSION || "1.58.0";
 const PORT = Number(process.env.HTTP_PORT || 8090);
 const MAX_QUEUE_ITEMS = Number(process.env.MAX_QUEUE_ITEMS || 50);
 const QUEUE_REFRESH_COOLDOWN_MS = 2000;

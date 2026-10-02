@@ -1,5 +1,5 @@
 name: Rdashboard Roon Queue Bridge
-version: "0.2.56"
+version: "0.2.57"
 slug: rdashboard_roon_bridge
 description: Publish Roon queue artwork and resolve local music requests for Home Assistant
 url: https://github.com/mirekmal/roon_bridge
