@@ -6,12 +6,11 @@ from typing import Any
 
 import probatio
 from aiohttp import ClientError
-from homeassistant.components import llm
+from homeassistant.components import llm as llm_component
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import llm
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.llm import LLMContext, ToolInput
-from homeassistant.util.json import JsonObjectType
 
 DEFAULT_BRIDGE_URL = "http://local-rdashboard-roon-bridge.local.hass.io:8090"
 DOMAIN = "rdashboard_roon_bridge"
@@ -20,7 +19,15 @@ DOMAIN = "rdashboard_roon_bridge"
 class PlayLocalRoonMusicTool(llm.Tool):
     """Search the local Roon library and play a verified match on a player."""
 
-    name = "play_local_roon_music"
+    name = "rdashboard_roon_bridge__play_local_roon_music"
+    title = "Play local Roon music"
+    integration = DOMAIN
+    annotations = llm.ToolAnnotations(
+        read_only=False,
+        destructive=False,
+        idempotent=False,
+        open_world=False,
+    )
     description = (
         "Legacy direct-search tool for the user's local Roon library. Prefer the "
         "search_roon_library MCP tool followed by play_roon_library_request when "
@@ -49,9 +56,9 @@ class PlayLocalRoonMusicTool(llm.Tool):
     async def async_call(
         self,
         hass: HomeAssistant,
-        tool_input: ToolInput,
-        llm_context: LLMContext,
-    ) -> JsonObjectType:
+        tool_input: llm.ToolInput,
+        llm_context: llm.LLMContext,
+    ) -> llm.ToolResult:
         """Resolve and play a local Roon request."""
         args = tool_input.tool_args
         request: dict[str, Any] = {
@@ -84,21 +91,21 @@ class PlayLocalRoonMusicTool(llm.Tool):
         if response.status >= 500:
             raise HomeAssistantError(result.get("error", "Mostek Roon nie wykonał odtwarzania."))
         if result.get("status") == "ambiguous":
-            return {
+            return llm.ToolResult(data={
                 "status": "ambiguous",
                 "message": "Znalazłem kilka pasujących pozycji. Poproś użytkownika o wybór.",
                 "matches": result.get("matches", []),
                 "target": result.get("target"),
-            }
+            })
         if result.get("status") == "not_found":
-            return {
+            return llm.ToolResult(data={
                 "status": "not_found",
                 "message": "Nie znalazłem tej pozycji w lokalnej bibliotece Roon.",
                 "target": result.get("target"),
-            }
+            })
         if result.get("status") != "played":
             raise HomeAssistantError(result.get("error", "Nie udało się rozpocząć odtwarzania."))
-        return {
+        return llm.ToolResult(data={
             "status": "played",
             "message": "Rozpoczęto odtwarzanie na wybranym odtwarzaczu.",
             "selected": result.get("selected", {}),
@@ -106,17 +113,17 @@ class PlayLocalRoonMusicTool(llm.Tool):
             "unavailable_artists": result.get("matches", []),
             "target": result.get("target"),
             "entity_id": result.get("entity_id"),
-        }
+        })
 
 
 @callback
 def async_get_tools(
     hass: HomeAssistant,
-    llm_context: LLMContext,
+    llm_context: llm.LLMContext,
     api_id: str,
-) -> llm.LLMTools | None:
+) -> llm_component.LLMTools | None:
     """Return the Roon tool for Home Assistant's Assist LLM APIs."""
-    return llm.LLMTools(
+    return llm_component.LLMTools(
         tools=[PlayLocalRoonMusicTool()],
         prompt=(
             "Jeśli dostępne są narzędzia MCP search_roon_library i play_roon_library_request, "
@@ -124,7 +131,7 @@ def async_get_tools(
             "a następnie przekaż wybrane kryteria do play_roon_library_request. "
             "Dla prośby o wszystkie utwory wykonawcy wyszukaj wykonawcę i uruchom jego całą "
             "muzykę z lokalnej biblioteki; nie wybieraj losowego albumu. "
-            "Jeśli narzędzia MCP nie są dostępne, użyj play_local_roon_music. "
+            "Jeśli narzędzia MCP nie są dostępne, użyj rdashboard_roon_bridge__play_local_roon_music. "
             "Jeśli użytkownik prosi tylko o wykonawcę bez albumu lub utworu, przekaż artist i nie wybieraj samodzielnie albumu — narzędzie odtworzy całą muzykę tego wykonawcy z biblioteki. "
             "Jeśli użytkownik prosi o muzykę podobną do wykonawcy, rozpoznaj kilku podobnych wykonawców na podstawie publicznie znanych gatunków, stylu i powiązań muzycznych; przekaż nazwę źródłowego wykonawcy w similar_to_artist, a kandydatów jako similar_artists. "
             "Nie twierdź, że sprawdziłeś aktualne źródła internetowe. Narzędzie odtworzy tylko kandydatów znalezionych dokładnie w lokalnej bibliotece Roon i doda ich muzykę do kolejki. "

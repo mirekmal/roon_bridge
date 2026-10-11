@@ -3,10 +3,10 @@ const assert = require("node:assert/strict");
 const { createMcpServer, PROTOCOL_VERSION } = require("../src/mcp-server");
 
 test("MCP server initializes stateless Streamable HTTP sessions and lists focused tools", async () => {
-  const server = createMcpServer({ version: "0.2.56", searchLibrary: async () => ({}), playMusic: async () => ({}) });
+  const server = createMcpServer({ version: "0.2.58", searchLibrary: async () => ({}), playMusic: async () => ({}) });
   const initialized = await server.handle({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: PROTOCOL_VERSION } });
   assert.equal(initialized.status, 200);
-  assert.equal(initialized.body.result.serverInfo.version, "0.2.56");
+  assert.equal(initialized.body.result.serverInfo.version, "0.2.58");
   const listed = await server.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" });
   assert.deepEqual(listed.body.result.tools.map((tool) => tool.name), ["search_roon_library", "play_roon_library_request"]);
   assert.equal(listed.body.result.tools[0].annotations.readOnlyHint, true);
